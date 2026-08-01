@@ -40,7 +40,7 @@ class GeminiClient(private val apiKey: String) {
 
     suspend fun analyzeHealthSnapshot(snapshot: HealthSnapshot): AIInsight = withContext(Dispatchers.IO) {
         val prompt = buildPrompt(snapshot)
-        val modelsToTry = listOf("gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite-preview")
+        val modelsToTry = listOf("gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-2.0-flash")
         var lastErrorMessage = ""
 
         for (modelName in modelsToTry) {
@@ -71,8 +71,8 @@ class GeminiClient(private val apiKey: String) {
         conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
         conn.setRequestProperty("x-goog-api-key", apiKey)
         conn.doOutput = true
-        conn.connectTimeout = 15000
-        conn.readTimeout = 30000
+        conn.connectTimeout = 5000
+        conn.readTimeout = 12000
 
         // Construir JSON payload
         val payload = buildJsonObject {
