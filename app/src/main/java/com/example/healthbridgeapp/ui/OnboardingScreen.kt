@@ -121,7 +121,7 @@ fun OnboardingScreen(onApiKeySubmitted: (String) -> Unit) {
                 },
                 isError = isError,
                 supportingText = if (isError) {
-                    { Text("La API key debe comenzar con 'AIza'", color = Color(0xFFFF5252)) }
+                    { Text("Formato de API key no válido. Verifica tu clave de AI Studio.", color = Color(0xFFFF5252)) }
                 } else null,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = AccentBlue,

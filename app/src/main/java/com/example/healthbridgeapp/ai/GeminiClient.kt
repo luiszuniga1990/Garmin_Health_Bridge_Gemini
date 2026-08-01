@@ -124,7 +124,7 @@ class GeminiClient(private val apiKey: String) {
         val lastRunPaceSec = data.lastRunPaceSecPerKm % 60
 
         return """
-Eres el coach de fitness personal de Luis Zúñiga. Tu objetivo es evaluar el estado de recuperación de hoy y dar la recomendación exacta alineada con su CALENDARIO DE ENTRENAMIENTO SEMANAL.
+Eres el coach de fitness personal del usuario. Tu objetivo es evaluar el estado de recuperación de hoy y dar la recomendación exacta alineada con su CALENDARIO DE ENTRENAMIENTO SEMANAL.
 
 MÉTRICAS EXTRAÍDAS DE HEALTH CONNECT (últimos 7 días):
 - HRV promedio: ${String.format("%.1f", data.avgHrv)} ms | valores recientes: ${data.hrvValues.takeLast(3).joinToString { String.format("%.0f", it) }} ms
@@ -135,7 +135,7 @@ MÉTRICAS EXTRAÍDAS DE HEALTH CONNECT (últimos 7 días):
 - Ejercicios registrados esta semana: $exerciseCount sesiones (${String.format("%.1f", data.distanceWeekKm)} km totales, ${data.caloriesWeek} kcal)
 - Última corrida — Pace: ${lastRunPaceMin}:${String.format("%02d", lastRunPaceSec)} /km | FC Media: ${data.lastRunHrBpm} bpm
 
-PERFIL Y CALENDARIO SEMANAL OBJETIVO DE LUIS:
+PERFIL Y CALENDARIO SEMANAL OBJETIVO DEL USUARIO:
 - LUNES: 💪 Fuerza (55 min)
 - MARTES: 💪 Fuerza (50 min)
 - MIÉRCOLES: 🚴 Ciclismo Indoor Z2 (30-35 min)
@@ -144,7 +144,7 @@ PERFIL Y CALENDARIO SEMANAL OBJETIVO DE LUIS:
 - SÁBADO: 💪 Fuerza + 🏊 Natación (30-40 min)
 - DOMINGO: 🏃 Corrida (5.5-6.5 km) + 🏊 Natación Crioterapia (30 min)
 
-REGLAS DE AUTORREGULACIÓN POR HRV (Baseline de Luis: 111-119 ms):
+REGLAS DE AUTORREGULACIÓN POR HRV (Baseline del usuario: 111-119 ms):
 - HRV > 115 ms (🟢 ÓPTIMO): Ejecutar plan del día al 100%.
 - HRV 105-115 ms (🟡 PRECAUCIÓN): Ejecutar plan del día sin añadir volumen extra.
 - HRV 95-105 ms (🟠 ATENCIÓN): Reducir running/cycling al 70%. Fuerza normal.
