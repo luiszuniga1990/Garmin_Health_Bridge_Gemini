@@ -3,8 +3,10 @@ package com.example.healthbridgeapp
 import android.app.Application
 import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
+import com.example.healthbridgeapp.ai.ClaudeClient
 import com.example.healthbridgeapp.ai.GeminiClient
 import com.example.healthbridgeapp.health.HealthConnectReader
+import com.example.healthbridgeapp.security.AiProvider
 import com.example.healthbridgeapp.security.SecureStorage
 
 /**
@@ -29,8 +31,13 @@ class HealthBridgeApp : Application() {
     }
 
     fun createGeminiClient(): GeminiClient? {
-        val apiKey = secureStorage.getApiKey() ?: return null
+        val apiKey = secureStorage.getGeminiApiKey() ?: secureStorage.getApiKey() ?: return null
         return GeminiClient(apiKey)
+    }
+
+    fun createClaudeClient(): ClaudeClient? {
+        val apiKey = secureStorage.getClaudeApiKey() ?: secureStorage.getApiKey() ?: return null
+        return ClaudeClient(apiKey)
     }
 
     override fun onCreate() {

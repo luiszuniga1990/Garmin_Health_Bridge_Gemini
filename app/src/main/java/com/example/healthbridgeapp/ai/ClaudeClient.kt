@@ -4,39 +4,19 @@ import android.util.Log
 import com.example.healthbridgeapp.health.HealthSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 
-private const val TAG = "GeminiClient"
-
-@Serializable
-data class AIInsight(
-    val estado: String = "DESCONOCIDO",          // ÓPTIMO | PRECAUCIÓN | ALARMA
-    val emoji_estado: String = "⚪",              // 🟢 🟡 🔴
-    val recomendacion_hoy: String = "",           // Qué hacer hoy
-    val metrica_clave: String = "",               // Métrica más importante esta semana
-    val proyeccion_semana: String = "",           // Proyección a 7 días
-    val alerta: String? = null,                  // Alerta específica si existe
-    val body_battery_estimado: Int = 60,          // 0-100
-    val listo_para_correr: Boolean = false,       // ¿Puede correr hoy?
-    val distancia_recomendada_km: Double = 0.0,  // km recomendados si corre
-    val ritmo_recomendado: String = "",           // pace objetivo
-    val cadencia_actual_spm: Int = 168,           // spm
-    val contacto_suelo_ms: Int = 272,             // ms
-    val oscilacion_vertical_cm: Double = 8.5,     // cm
-    val vo2_max_estimado: Double = 48.0,          // ml/kg/min
-    val actividad_hoy_nombre: String = "Fuerza",  // Actividad programada según el día
-)
+private const val TAG = "ClaudeClient"
 
 /**
- * Cliente de Gemini para Android mediante REST API directo (HttpURLConnection).
- * Soporta cualquier formato de API Key (AIza... o AQ...) y modelos Gemini 1.5/2.0/3.0.
+ * Cliente nativo para Anthropic Claude REST API (v1/messages).
+ * Permite hacer consultas directas a los modelos de Claude Sonnet / Haiku.
  */
-class GeminiClient(private val apiKey: String) {
+class ClaudeClient(private val apiKey: String) {
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -45,14 +25,14 @@ class GeminiClient(private val apiKey: String) {
 
     suspend fun analyzeHealthSnapshot(snapshot: HealthSnapshot): AIInsight = withContext(Dispatchers.IO) {
         val prompt = buildPrompt(snapshot)
-        val modelsToTry = listOf("gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-2.0-flash")
+        val modelsToTry = listOf("claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022")
         var lastErrorMessage = ""
 
         for (modelName in modelsToTry) {
             try {
-                Log.d(TAG, "Enviando análisis a Gemini ($modelName)...")
+                Log.d(TAG, "Enviando análisis a Anthropic Claude ($modelName)...")
                 val rawText = makeHttpRequest(modelName, prompt)
-                Log.d(TAG, "Respuesta Gemini ($modelName): $rawText")
+                Log.d(TAG, "Respuesta Claude ($modelName): $rawText")
                 return@withContext json.decodeFromString<AIInsight>(rawText)
             } catch (e: Exception) {
                 Log.e(TAG, "Error con modelo $modelName: ${e.message}")
@@ -63,37 +43,30 @@ class GeminiClient(private val apiKey: String) {
         AIInsight(
             estado = "ERROR",
             emoji_estado = "⚠️",
-            recomendacion_hoy = "Error al conectar con Gemini: $lastErrorMessage",
-            metrica_clave = "Conectividad"
+            recomendacion_hoy = "Error al conectar con Claude API: $lastErrorMessage",
+            metrica_clave = "Conectividad Anthropic"
         )
     }
 
     private fun makeHttpRequest(modelName: String, promptText: String): String {
-        val urlString = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
-        val url = URL(urlString)
+        val url = URL("https://api.anthropic.com/v1/messages")
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-        conn.setRequestProperty("x-goog-api-key", apiKey)
+        conn.setRequestProperty("x-api-key", apiKey)
+        conn.setRequestProperty("anthropic-version", "2023-06-01")
         conn.doOutput = true
-        conn.connectTimeout = 5000
-        conn.readTimeout = 12000
+        conn.connectTimeout = 8000
+        conn.readTimeout = 15000
 
-        // Construir JSON payload
         val payload = buildJsonObject {
-            putJsonArray("contents") {
+            put("model", modelName)
+            put("max_tokens", 1024)
+            putJsonArray("messages") {
                 addJsonObject {
-                    putJsonArray("parts") {
-                        addJsonObject {
-                            put("text", promptText)
-                        }
-                    }
+                    put("role", "user")
+                    put("content", promptText)
                 }
-            }
-            putJsonObject("generationConfig") {
-                put("temperature", 0.4)
-                put("maxOutputTokens", 1024)
-                put("responseMimeType", "application/json")
             }
         }.toString()
 
@@ -106,21 +79,19 @@ class GeminiClient(private val apiKey: String) {
         val responseBody = BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8)).use { it.readText() }
 
         if (statusCode !in 200..299) {
-            throw Exception("HTTP $statusCode: $responseBody")
+            throw Exception("Anthropic API HTTP $statusCode: $responseBody")
         }
 
-        // Parsear candidates[0].content.parts[0].text
         val responseJson = json.parseToJsonElement(responseBody).jsonObject
-        val candidates = responseJson["candidates"]?.jsonArray
-            ?: throw Exception("Sin candidatos en respuesta: $responseBody")
-        val firstCandidate = candidates.firstOrNull()?.jsonObject
-            ?: throw Exception("Candidatos vacíos")
-        val parts = firstCandidate["content"]?.jsonObject?.get("parts")?.jsonArray
-            ?: throw Exception("Sin contenido en respuesta")
-        val rawText = parts.firstOrNull()?.jsonObject?.get("text")?.jsonPrimitive?.content
-            ?: throw Exception("Texto de respuesta vacío")
+        val contentArray = responseJson["content"]?.jsonArray
+            ?: throw Exception("Sin array de contenido en respuesta de Claude: $responseBody")
+        val textBlock = contentArray.firstOrNull()?.jsonObject?.get("text")?.jsonPrimitive?.content
+            ?: throw Exception("Bloque de texto vacío en respuesta de Claude")
 
-        return rawText
+        // Extraer JSON en caso de que esté envuelto en bloques de código markdown ```json ... ```
+        val jsonCleaned = textBlock.substringAfter("```json").substringBefore("```").trim().ifEmpty { textBlock.trim() }
+
+        return jsonCleaned
     }
 
     private fun buildPrompt(data: HealthSnapshot): String {
@@ -129,9 +100,9 @@ class GeminiClient(private val apiKey: String) {
         val lastRunPaceSec = data.lastRunPaceSecPerKm % 60
 
         return """
-Eres el coach de fitness personal del usuario. Tu objetivo es evaluar el estado de recuperación de hoy y dar la recomendación exacta alineada con su CALENDARIO DE ENTRENAMIENTO SEMANAL.
+Eres el coach de fitness personal del usuario impulsado por Claude AI. Tu objetivo es evaluar el estado de recuperación de hoy y dar la recomendación exacta alineada con su CALENDARIO DE ENTRENAMIENTO SEMANAL.
 
-MÉTRICAS EXTRAÍDAS DE HEALTH CONNECT (últimos 7 días):
+MÉTRICAS EXTRAÍDAS DE GARMIN VIA HEALTH CONNECT (últimos 7 días):
 - HRV promedio: ${String.format("%.1f", data.avgHrv)} ms | valores recientes: ${data.hrvValues.takeLast(3).joinToString { String.format("%.0f", it) }} ms
 - Sueño anoche: ${String.format("%.1f", data.lastSleepHours)}h (Profundo: ${String.format("%.1f", data.deepSleepHours)}h, REM: ${String.format("%.1f", data.remSleepHours)}h)
 - Score de sueño calculado: ${data.sleepScore}/100
@@ -155,19 +126,14 @@ REGLAS DE AUTORREGULACIÓN POR HRV (Baseline del usuario: 111-119 ms):
 - HRV 95-105 ms (🟠 ATENCIÓN): Reducir running/cycling al 70%. Fuerza normal.
 - HRV < 95 ms o Sueño < 60 (🔴 ALARMA): Descanso activo / movilidad Zona 1.
 
-METAS BIOMECÁNICAS:
-- Cadencia carrera: Meta 170-175 spm (actual 168 spm)
-- Contacto suelo: Meta < 250 ms (actual ~272 ms)
-- Oscilación vertical: Meta 6-8 cm (actual 8.5 cm)
-
-Determina el día de la semana según los datos y responde ÚNICAMENTE con este JSON exacto:
+Responde ÚNICAMENTE con el siguiente objeto JSON puro (sin texto adicional fuera del JSON):
 {
   "estado": "ÓPTIMO|PRECAUCIÓN|ALARMA",
   "emoji_estado": "🟢|🟡|🔴",
-  "recomendacion_hoy": "recomendación específica según el día de la semana y el HRV de hoy en 1-2 oraciones",
-  "metrica_clave": "métrica biomecánica o de descanso más crítica hoy",
-  "proyeccion_semana": "proyección de carga para los próximos 7 días",
-  "alerta": "alerta específica si el HRV o el sueño están comprometidos, o null",
+  "recomendacion_hoy": "Recomendación experta de Claude según el día de la semana y el HRV de hoy en 1-2 oraciones",
+  "metrica_clave": "Métrica biomecánica o de descanso más crítica hoy",
+  "proyeccion_semana": "Proyección de carga para los próximos 7 días por Claude",
+  "alerta": "Alerta específica si el HRV o el sueño están comprometidos, o null",
   "body_battery_estimado": 60,
   "listo_para_correr": true,
   "distancia_recomendada_km": 5.0,
@@ -178,6 +144,6 @@ Determina el día de la semana según los datos y responde ÚNICAMENTE con este 
   "vo2_max_estimado": 48.0,
   "actividad_hoy_nombre": "Fuerza"
 }
-        """.trimIndent()
+""".trimIndent()
     }
 }

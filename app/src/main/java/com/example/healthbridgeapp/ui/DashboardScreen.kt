@@ -20,13 +20,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import com.example.healthbridgeapp.ai.AIInsight
+import com.example.healthbridgeapp.ai.ClaudeExporter
+import com.example.healthbridgeapp.health.HealthSnapshot
+import com.example.healthbridgeapp.security.AiProvider
 
 // ── Paleta de colores premium ────────────────────────────────────────────────
 private val DarkBg = Color(0xFF0A0E1A)
 private val CardBg = Color(0xFF141829)
 private val CardBorder = Color(0xFF1E2A45)
 private val AccentBlue = Color(0xFF4F8EF7)
+private val AccentOrange = Color(0xFFD97706)
+private val AccentClaude = Color(0xFFDA7756)
 private val AccentGreen = Color(0xFF00E5A0)
 private val AccentYellow = Color(0xFFFFB740)
 private val AccentRed = Color(0xFFFF5252)
@@ -36,11 +42,15 @@ private val TextSecondary = Color(0xFF8A92B2)
 @Composable
 fun DashboardScreen(
     insight: AIInsight?,
+    snapshot: HealthSnapshot? = null,
     isLoading: Boolean,
     errorMessage: String? = null,
+    selectedProvider: AiProvider = AiProvider.GEMINI,
     onRefresh: () -> Unit,
+    onProviderSwitched: (AiProvider) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
+    val context = LocalContext.current
 
     Box(
         modifier = Modifier
@@ -68,7 +78,7 @@ fun DashboardScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Garmin × Gemini",
+                        text = "Garmin Connect × Claude AI × Gemini",
                         color = TextSecondary,
                         fontSize = 13.sp
                     )
@@ -96,6 +106,57 @@ fun DashboardScreen(
                 }
             }
 
+            // ── Selector de Proveedor de IA ───────────────────────────────
+            ProviderSelectorRow(
+                selectedProvider = selectedProvider,
+                onProviderSwitched = onProviderSwitched
+            )
+
+            // ── Tarjeta de Exportación a Claude Mobile App ────────────────
+            ClaudeExportCard(
+                snapshot = snapshot,
+                onOpenClaude = {
+                    val targetSnapshot = snapshot ?: HealthSnapshot(
+                        hrvValues = listOf(112.0, 114.0, 119.0, 110.0, 111.0),
+                        avgHrv = 112.0,
+                        lastSleepHours = 7.64,
+                        sleepScore = 90,
+                        deepSleepHours = 0.97,
+                        remSleepHours = 1.63,
+                        steps7Days = 56641,
+                        stepsToday = 8127,
+                        exerciseSessions = emptyList(),
+                        lastRunPaceSecPerKm = 387,
+                        lastRunHrBpm = 145,
+                        spo2Latest = 98.0,
+                        heartRateResting = 44,
+                        caloriesWeek = 3750,
+                        distanceWeekKm = 10.73
+                    )
+                    ClaudeExporter.openClaudeApp(context, targetSnapshot)
+                },
+                onShareSheet = {
+                    val targetSnapshot = snapshot ?: HealthSnapshot(
+                        hrvValues = listOf(112.0, 114.0, 119.0, 110.0, 111.0),
+                        avgHrv = 112.0,
+                        lastSleepHours = 7.64,
+                        sleepScore = 90,
+                        deepSleepHours = 0.97,
+                        remSleepHours = 1.63,
+                        steps7Days = 56641,
+                        stepsToday = 8127,
+                        exerciseSessions = emptyList(),
+                        lastRunPaceSecPerKm = 387,
+                        lastRunHrBpm = 145,
+                        spo2Latest = 98.0,
+                        heartRateResting = 44,
+                        caloriesWeek = 3750,
+                        distanceWeekKm = 10.73
+                    )
+                    ClaudeExporter.shareViaAndroidShareSheet(context, targetSnapshot)
+                }
+            )
+
             // ── Loading state ────────────────────────────────────────────────
             if (isLoading) {
                 LoadingCard()
@@ -112,17 +173,163 @@ fun DashboardScreen(
             if (insight != null) {
                 // Estado principal
                 StatusCard(insight = insight)
-                // Recomendación del día
+
+                // 🗓️ Tarjeta de Calendario Semanal de Entrenamiento
+                WeeklyPlanCard(insight = insight)
+
+                // 🎯 Recomendación del día
                 RecommendationCard(insight = insight)
-                // Métricas clave
+
+                // 🏃‍♂️ Biomecánica y VO2 Max
+                BiomechanicsCard(insight = insight)
+
+                // ⚡ Métricas clave
                 MetricsRow(insight = insight)
-                // Proyección semanal
+
+                // 📈 Proyección semanal
                 ProjectionCard(insight = insight)
+
                 // Alerta si existe
                 insight.alerta?.let { AlertCard(message = it) }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+@Composable
+private fun ProviderSelectorRow(
+    selectedProvider: AiProvider,
+    onProviderSwitched: (AiProvider) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(CardBg, RoundedCornerShape(14.dp))
+            .border(1.dp, CardBorder, RoundedCornerShape(14.dp))
+            .padding(6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val geminiSelected = selectedProvider == AiProvider.GEMINI
+        val claudeSelected = selectedProvider == AiProvider.CLAUDE
+
+        Button(
+            onClick = { onProviderSwitched(AiProvider.GEMINI) },
+            modifier = Modifier.weight(1f),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (geminiSelected) AccentBlue else Color.Transparent,
+                contentColor = if (geminiSelected) Color.White else TextSecondary
+            ),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Text(
+                text = "✨ Gemini 3.1",
+                fontSize = 13.sp,
+                fontWeight = if (geminiSelected) FontWeight.Bold else FontWeight.Normal
+            )
+        }
+
+        Spacer(modifier = Modifier.width(6.dp))
+
+        Button(
+            onClick = { onProviderSwitched(AiProvider.CLAUDE) },
+            modifier = Modifier.weight(1f),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (claudeSelected) AccentClaude else Color.Transparent,
+                contentColor = if (claudeSelected) Color.White else TextSecondary
+            ),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Text(
+                text = "🟧 Claude AI",
+                fontSize = 13.sp,
+                fontWeight = if (claudeSelected) FontWeight.Bold else FontWeight.Normal
+            )
+        }
+    }
+}
+
+@Composable
+private fun ClaudeExportCard(
+    snapshot: HealthSnapshot?,
+    onOpenClaude: () -> Unit,
+    onShareSheet: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color(0xFF2E1911), Color(0xFF141829))
+                    )
+                )
+                .border(1.dp, Color(0xFF5A3121), RoundedCornerShape(20.dp))
+                .padding(20.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(text = "📲", fontSize = 24.sp)
+                    Column {
+                        Text(
+                            text = "Conversar en Claude App Mobile",
+                            color = TextPrimary,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Transfiere tus métricas de Garmin a la app oficial de Claude",
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = onOpenClaude,
+                        modifier = Modifier.weight(1.3f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AccentClaude,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = "💬 Abrir en Claude App",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onShareSheet,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = TextPrimary
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFF7A4533)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = "📤 Compartir",
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -154,8 +361,10 @@ private fun StatusCard(insight: AIInsight) {
                 .border(1.dp, CardBorder, RoundedCornerShape(20.dp))
                 .padding(24.dp)
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text(
                     text = insight.emoji_estado,
                     fontSize = 52.sp
@@ -170,7 +379,7 @@ private fun StatusCard(insight: AIInsight) {
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Estado de recuperación hoy",
+                    text = "Estado de recuperación del sistema nervioso",
                     color = TextSecondary,
                     fontSize = 13.sp
                 )
@@ -180,10 +389,149 @@ private fun StatusCard(insight: AIInsight) {
 }
 
 @Composable
+private fun WeeklyPlanCard(insight: AIInsight) {
+    GlassCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SectionTitle(title = "🗓️ SEMANA DE ENTRENAMIENTO")
+                Text(
+                    text = "Plan 360",
+                    color = AccentBlue,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            val days = listOf(
+                "Lun" to "💪 Fuerza",
+                "Mar" to "💪 Fuerza",
+                "Mié" to "🚴 Ciclismo Z2",
+                "Jue" to "💪 Fuerza + 🏃",
+                "Vie" to "💪 Fuerza/Desc",
+                "Sáb" to "💪 Fuerza + 🏊",
+                "Dom" to "🏃 Corrida + 🏊"
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                days.forEach { (day, activity) ->
+                    val isTodayActivity = insight.actividad_hoy_nombre.contains(activity.take(6), ignoreCase = true)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isTodayActivity) AccentBlue.copy(alpha = 0.2f) else Color.Transparent)
+                            .padding(vertical = 6.dp, horizontal = 4.dp)
+                    ) {
+                        Text(
+                            text = day,
+                            color = if (isTodayActivity) AccentBlue else TextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = activity.take(2),
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider(color = CardBorder, thickness = 1.dp)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Programado hoy:",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+                Text(
+                    text = insight.actividad_hoy_nombre,
+                    color = AccentGreen,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BiomechanicsCard(insight: AIInsight) {
+    GlassCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SectionTitle(title = "🏃‍♂️ BIOMECÁNICA & RENDIMIENTO")
+                Text(
+                    text = "VO₂ Max: ${insight.vo2_max_estimado}",
+                    color = AccentBlue,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            BiomechanicRow(
+                label = "Cadencia",
+                value = "${insight.cadencia_actual_spm} spm",
+                target = "Meta: 170-175",
+                isGood = insight.cadencia_actual_spm >= 170
+            )
+            BiomechanicRow(
+                label = "Contacto Suelo",
+                value = "${insight.contacto_suelo_ms} ms",
+                target = "Meta: <250 ms",
+                isGood = insight.contacto_suelo_ms <= 250
+            )
+            BiomechanicRow(
+                label = "Oscilación Vert.",
+                value = "${insight.oscilacion_vertical_cm} cm",
+                target = "Meta: 6-8 cm",
+                isGood = insight.oscilacion_vertical_cm <= 8.0
+            )
+        }
+    }
+}
+
+@Composable
+private fun BiomechanicRow(label: String, value: String, target: String, isGood: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text(text = label, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(text = target, color = TextSecondary, fontSize = 11.sp)
+        }
+        Text(
+            text = value,
+            color = if (isGood) AccentGreen else AccentYellow,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
 private fun RecommendationCard(insight: AIInsight) {
     GlassCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SectionTitle(title = "🎯 Recomendación de hoy")
+            SectionTitle(title = "🎯 RECOMENDACIÓN DE HOY")
             Text(
                 text = insight.recomendacion_hoy,
                 color = TextPrimary,
@@ -191,7 +539,7 @@ private fun RecommendationCard(insight: AIInsight) {
                 lineHeight = 22.sp
             )
             if (insight.listo_para_correr && insight.distancia_recomendada_km > 0) {
-                Divider(color = CardBorder, thickness = 1.dp)
+                HorizontalDivider(color = CardBorder, thickness = 1.dp)
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     RunChip(
                         label = "Distancia",
@@ -240,7 +588,7 @@ private fun MetricsRow(insight: AIInsight) {
 private fun ProjectionCard(insight: AIInsight) {
     GlassCard {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SectionTitle(title = "📈 Proyección 7 días")
+            SectionTitle(title = "📈 PROYECCIÓN 7 DÍAS")
             Text(
                 text = insight.proyeccion_semana,
                 color = TextPrimary,
@@ -324,8 +672,6 @@ private fun ErrorCard(message: String, onRetry: () -> Unit) {
     }
 }
 
-// ── Componentes reutilizables ────────────────────────────────────────────────
-
 @Composable
 private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
@@ -334,8 +680,7 @@ private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
         colors = CardDefaults.cardColors(containerColor = CardBg)
     ) {
         Box(
-            modifier = Modifier
-                .border(1.dp, CardBorder, RoundedCornerShape(20.dp))
+            modifier = Modifier.border(1.dp, CardBorder, RoundedCornerShape(20.dp))
         ) {
             Column(
                 modifier = Modifier.padding(20.dp),
@@ -348,8 +693,7 @@ private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
 
 @Composable
 private fun SectionTitle(title: String) {
-    Text(text = title, color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-        letterSpacing = 0.5.sp)
+    Text(text = title, color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
 }
 
 @Composable
@@ -376,8 +720,7 @@ private fun MetricTile(
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(text = value, color = valueColor, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     if (unit.isNotEmpty()) {
-                        Text(text = unit, color = TextSecondary, fontSize = 12.sp,
-                            modifier = Modifier.padding(bottom = 2.dp))
+                        Text(text = unit, color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(bottom = 2.dp))
                     }
                 }
                 Text(text = label, color = TextSecondary, fontSize = 12.sp)

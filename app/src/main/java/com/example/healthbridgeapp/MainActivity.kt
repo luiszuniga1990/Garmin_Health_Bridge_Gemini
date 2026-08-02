@@ -56,19 +56,28 @@ class MainActivity : ComponentActivity() {
                     )
                     is AppUiState.Loading -> DashboardScreen(
                         insight = null,
+                        snapshot = null,
                         isLoading = true,
-                        onRefresh = { triggerDataLoad() }
+                        selectedProvider = app.secureStorage.getSelectedProvider(),
+                        onRefresh = { triggerDataLoad() },
+                        onProviderSwitched = { provider -> handleSwitchProvider(provider) }
                     )
                     is AppUiState.Ready -> DashboardScreen(
                         insight = state.insight,
+                        snapshot = state.snapshot,
                         isLoading = false,
-                        onRefresh = { triggerDataLoad() }
+                        selectedProvider = state.selectedProvider,
+                        onRefresh = { triggerDataLoad() },
+                        onProviderSwitched = { provider -> handleSwitchProvider(provider) }
                     )
                     is AppUiState.Error -> DashboardScreen(
                         insight = null,
+                        snapshot = state.snapshot,
                         isLoading = false,
                         errorMessage = state.message,
-                        onRefresh = { triggerDataLoad() }
+                        selectedProvider = app.secureStorage.getSelectedProvider(),
+                        onRefresh = { triggerDataLoad() },
+                        onProviderSwitched = { provider -> handleSwitchProvider(provider) }
                     )
                 }
             }
@@ -99,17 +108,40 @@ class MainActivity : ComponentActivity() {
     private fun triggerDataLoad() {
         uiState.value = AppUiState.Loading
         lifecycleScope.launch {
+            var currentSnapshot: com.example.healthbridgeapp.health.HealthSnapshot? = null
             try {
                 val reader = app.healthConnectReader
                     ?: throw Exception("Health Connect no inicializado")
-                val gemini = app.createGeminiClient()
-                    ?: throw Exception("API key de Gemini no configurada")
 
-                val snapshot = reader.readLastWeekSnapshot()
-                val insight = gemini.analyzeHealthSnapshot(snapshot)
-                uiState.value = AppUiState.Ready(insight)
+                currentSnapshot = reader.readLastWeekSnapshot()
+                val provider = app.secureStorage.getSelectedProvider()
+
+                val insight = when (provider) {
+                    com.example.healthbridgeapp.security.AiProvider.CLAUDE -> {
+                        val claude = app.createClaudeClient()
+                        if (claude != null) {
+                            claude.analyzeHealthSnapshot(currentSnapshot)
+                        } else {
+                            app.createGeminiClient()?.analyzeHealthSnapshot(currentSnapshot)
+                                ?: throw Exception("Configura tu API key de Gemini o Claude")
+                        }
+                    }
+                    com.example.healthbridgeapp.security.AiProvider.GEMINI -> {
+                        val gemini = app.createGeminiClient()
+                        if (gemini != null) {
+                            gemini.analyzeHealthSnapshot(currentSnapshot)
+                        } else {
+                            app.createClaudeClient()?.analyzeHealthSnapshot(currentSnapshot)
+                                ?: throw Exception("Configura tu API key de Gemini o Claude")
+                        }
+                    }
+                }
+                uiState.value = AppUiState.Ready(insight = insight, snapshot = currentSnapshot, selectedProvider = provider)
             } catch (e: Exception) {
-                uiState.value = AppUiState.Error(e.message ?: "Error desconocido")
+                uiState.value = AppUiState.Error(
+                    message = e.message ?: "Error desconocido",
+                    snapshot = currentSnapshot
+                )
             }
         }
     }
@@ -118,11 +150,23 @@ class MainActivity : ComponentActivity() {
         app.secureStorage.saveApiKey(apiKey)
         initializeApp()
     }
+
+    fun handleSwitchProvider(provider: com.example.healthbridgeapp.security.AiProvider) {
+        app.secureStorage.saveSelectedProvider(provider)
+        triggerDataLoad()
+    }
 }
 
 sealed class AppUiState {
     object NeedsApiKey : AppUiState()
     object Loading : AppUiState()
-    data class Ready(val insight: AIInsight) : AppUiState()
-    data class Error(val message: String) : AppUiState()
+    data class Ready(
+        val insight: AIInsight,
+        val snapshot: com.example.healthbridgeapp.health.HealthSnapshot?,
+        val selectedProvider: com.example.healthbridgeapp.security.AiProvider
+    ) : AppUiState()
+    data class Error(
+        val message: String,
+        val snapshot: com.example.healthbridgeapp.health.HealthSnapshot? = null
+    ) : AppUiState()
 }
