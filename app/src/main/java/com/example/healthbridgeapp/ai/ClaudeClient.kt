@@ -21,11 +21,12 @@ class ClaudeClient(private val apiKey: String) {
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
+        coerceInputValues = true
     }
 
     suspend fun analyzeHealthSnapshot(snapshot: HealthSnapshot): AIInsight = withContext(Dispatchers.IO) {
         val prompt = buildPrompt(snapshot)
-        val modelsToTry = listOf("claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022")
+        val modelsToTry = listOf("claude-3-5-haiku-20241022", "claude-3-5-sonnet-20241022", "claude-3-7-sonnet-20250219")
         var lastErrorMessage = ""
 
         for (modelName in modelsToTry) {
@@ -100,41 +101,42 @@ class ClaudeClient(private val apiKey: String) {
         val lastRunPaceSec = data.lastRunPaceSecPerKm % 60
 
         return """
-Eres el coach de fitness personal del usuario impulsado por Claude AI. Tu objetivo es evaluar el estado de recuperación de hoy y dar la recomendación exacta alineada con su CALENDARIO DE ENTRENAMIENTO SEMANAL.
+Eres el coach de fitness personal del usuario impulsado por Claude AI. Tu objetivo es evaluar sus métricas reales de salud y descanso para determinar:
+1. SI DEBE O NO ENTRENAR LA RUTINA PROGRAMADA PARA HOY (si durmió mal o el HRV bajó, recomiéndale ajustar o suspender la rutina de hoy).
+2. SI EXISTE RIESGO DE SOBREENTRENAMIENTO (evalúa la tendencia de HRV 7 días, FC en reposo, sueño y volumen de ejercicio acumulado).
 
 MÉTRICAS EXTRAÍDAS DE GARMIN VIA HEALTH CONNECT (últimos 7 días):
-- HRV promedio: ${String.format("%.1f", data.avgHrv)} ms | valores recientes: ${data.hrvValues.takeLast(3).joinToString { String.format("%.0f", it) }} ms
+- HRV promedio 7d: ${String.format("%.1f", data.avgHrv)} ms | HRV recientes: ${data.hrvValues.takeLast(3).joinToString { String.format("%.0f", it) }} ms (Baseline del atleta: 111-119 ms)
 - Sueño anoche: ${String.format("%.1f", data.lastSleepHours)}h (Profundo: ${String.format("%.1f", data.deepSleepHours)}h, REM: ${String.format("%.1f", data.remSleepHours)}h)
-- Score de sueño calculado: ${data.sleepScore}/100
+- Score de sueño: ${data.sleepScore}/100
 - Pasos hoy: ${data.stepsToday} | Pasos 7 días: ${data.steps7Days}
-- FC Reposo estimada: ${data.heartRateResting} bpm | SpO2: ${String.format("%.1f", data.spo2Latest)}%
+- FC Reposo estimada (RHR): ${data.heartRateResting} bpm | SpO2: ${String.format("%.1f", data.spo2Latest)}%
 - Ejercicios registrados esta semana: $exerciseCount sesiones (${String.format("%.1f", data.distanceWeekKm)} km totales, ${data.caloriesWeek} kcal)
 - Última corrida — Pace: ${lastRunPaceMin}:${String.format("%02d", lastRunPaceSec)} /km | FC Media: ${data.lastRunHrBpm} bpm
 
-PERFIL Y CALENDARIO SEMANAL OBJETIVO DEL USUARIO:
-- LUNES: 💪 Fuerza (55 min)
-- MARTES: 💪 Fuerza (50 min)
-- MIÉRCOLES: 🚴 Ciclismo Indoor Z2 (30-35 min)
-- JUEVES: 💪 Fuerza + 🏃 Corrida Z3 (5-6 km) [Día Doble]
-- VIERNES: 💪 Fuerza o Descanso
+CALENDARIO DE ENTRENAMIENTO SEMANAL OBJETIVO:
+- LUNES: 💪 Fuerza Upper (Push) - 55 min
+- MARTES: 💪 Fuerza Lower (Piernas) - 50 min
+- MIÉRCOLES: 🚴 Ciclismo Indoor Z2 - 35 min
+- JUEVES: 💪 Fuerza (Pull) + 🏃 Corrida Z3 (5-6 km) [Día Doble]
+- VIERNES: 💪 Fuerza Funcional / Descanso
 - SÁBADO: 💪 Fuerza + 🏊 Natación (30-40 min)
-- DOMINGO: 🏃 Corrida (5.5-6.5 km) + 🏊 Natación Crioterapia (30 min)
+- DOMINGO: 🏃 Corrida (5.5-6.5 km) + 🏊 Natación (30 min)
 
-REGLAS DE AUTORREGULACIÓN POR HRV (Baseline del usuario: 111-119 ms):
-- HRV > 115 ms (🟢 ÓPTIMO): Ejecutar plan del día al 100%.
-- HRV 105-115 ms (🟡 PRECAUCIÓN): Ejecutar plan del día sin añadir volumen extra.
-- HRV 95-105 ms (🟠 ATENCIÓN): Reducir running/cycling al 70%. Fuerza normal.
-- HRV < 95 ms o Sueño < 60 (🔴 ALARMA): Descanso activo / movilidad Zona 1.
+REGLAS DE EVALUACIÓN Y AJUSTE DE ENTRENAMIENTO:
+- Si el sueño fue malo (< 6.5 horas o score < 65) o HRV < 105 ms: RECOMENDAR AJUSTAR O CANCELAR EL ENTRENAMIENTO DE HOY (ej: "Reducir peso/volumen un 30%" o "Sustituir por descanso activo").
+- Si HRV < 95 ms o FC Reposo se elevó > 5 bpm: ALERTA DE SOBREENTRENAMIENTO. Recomendar descanso total.
+- Si HRV 111-119 ms y Sueño > 7.5h (score > 80): Estado ÓPTIMO, entrenar al 100%.
 
 Responde ÚNICAMENTE con el siguiente objeto JSON puro (sin texto adicional fuera del JSON):
 {
   "estado": "ÓPTIMO|PRECAUCIÓN|ALARMA",
   "emoji_estado": "🟢|🟡|🔴",
-  "recomendacion_hoy": "Recomendación experta de Claude según el día de la semana y el HRV de hoy en 1-2 oraciones",
-  "metrica_clave": "Métrica biomecánica o de descanso más crítica hoy",
-  "proyeccion_semana": "Proyección de carga para los próximos 7 días por Claude",
-  "alerta": "Alerta específica si el HRV o el sueño están comprometidos, o null",
-  "body_battery_estimado": 60,
+  "recomendacion_hoy": "evaluación directa de su recuperación de hoy y si debe o no entrenar la rutina del día en 1-2 frases claras por Claude",
+  "metrica_clave": "métrica de recuperación más crítica hoy",
+  "proyeccion_semana": "proyección de carga de la semana considerando riesgo de sobreentrenamiento",
+  "alerta": "alerta específica si durmió mal o hay riesgo de sobreentrenamiento, o null",
+  "body_battery_estimado": 85,
   "listo_para_correr": true,
   "distancia_recomendada_km": 5.0,
   "ritmo_recomendado": "5:45 /km",
@@ -142,7 +144,10 @@ Responde ÚNICAMENTE con el siguiente objeto JSON puro (sin texto adicional fuer
   "contacto_suelo_ms": 272,
   "oscilacion_vertical_cm": 8.5,
   "vo2_max_estimado": 48.0,
-  "actividad_hoy_nombre": "Fuerza"
+  "actividad_hoy_nombre": "Fuerza Upper",
+  "riesgo_sobreentrenamiento": "BAJO|MODERADO|ALTO",
+  "estado_sueño_descanso": "ÓPTIMO|PRECAUCIÓN|INSUFICIENTE",
+  "ajuste_entrenamiento_hoy": "Entrenar al 100%|Reducir carga 30%|Descanso Activo|Suspender Rutina"
 }
 """.trimIndent()
     }

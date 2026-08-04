@@ -5,6 +5,8 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.records.*
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
@@ -38,52 +40,139 @@ data class ExerciseInfo(
 )
 
 /**
- * Lee todos los datos relevantes de Health Connect.
- * En Android 16, Health Connect está integrado nativamente en el OS.
- * Garmin Connect sincroniza automáticamente todos estos datos.
+ * Lee todos los datos relevantes de Health Connect de forma concurrente y ultrarrápida.
  */
 class HealthConnectReader(private val client: HealthConnectClient) {
 
     /**
      * Lee un snapshot completo de los últimos 7 días.
-     * Llamar desde una coroutine (suspend function).
+     * Ejecuta todas las consultas en paralelo con async/await.
      */
-    suspend fun readLastWeekSnapshot(): HealthSnapshot {
+    suspend fun readLastWeekSnapshot(): HealthSnapshot = coroutineScope {
         val now = Instant.now()
         val sevenDaysAgo = now.minus(7, ChronoUnit.DAYS)
         val oneDayAgo = now.minus(1, ChronoUnit.DAYS)
+        val sleepTimeRange = TimeRangeFilter.between(now.minus(36, ChronoUnit.HOURS), now)
         val timeRange7d = TimeRangeFilter.between(sevenDaysAgo, now)
         val timeRange1d = TimeRangeFilter.between(oneDayAgo, now)
 
-        // ── HRV (RMSSD nocturno) ─────────────────────────────────────────
-        val hrvRecords = try {
-            client.readRecords(
-                ReadRecordsRequest(
-                    recordType = HeartRateVariabilityRmssdRecord::class,
-                    timeRangeFilter = timeRange7d
-                )
-            ).records
-        } catch (e: Exception) { emptyList() }
+        val hrTimeRange = TimeRangeFilter.between(now.minus(6, ChronoUnit.HOURS), now)
+
+        // ── Consultas paralelas en segundo plano (Timeout máximo 2000ms por consulta) ──────────────────────────────
+        val hrvDeferred = async {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(2000) {
+                    client.readRecords(
+                        ReadRecordsRequest(HeartRateVariabilityRmssdRecord::class, timeRange7d)
+                    ).records.sortedBy { it.time }
+                } ?: emptyList()
+            } catch (e: Exception) { emptyList() }
+        }
+
+        val sleepDeferred = async {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(2000) {
+                    client.readRecords(
+                        ReadRecordsRequest(SleepSessionRecord::class, sleepTimeRange)
+                    ).records.sortedBy { it.startTime }
+                } ?: emptyList()
+            } catch (e: Exception) { emptyList() }
+        }
+
+        val stepsWeekDeferred = async {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(2000) {
+                    client.readRecords(ReadRecordsRequest(StepsRecord::class, timeRange7d)).records.sumOf { it.count }
+                } ?: 0L
+            } catch (e: Exception) { 0L }
+        }
+
+        val stepsTodayDeferred = async {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(2000) {
+                    client.readRecords(ReadRecordsRequest(StepsRecord::class, timeRange1d)).records.sumOf { it.count }
+                } ?: 0L
+            } catch (e: Exception) { 0L }
+        }
+
+        val exerciseDeferred = async {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(2000) {
+                    client.readRecords(
+                        ReadRecordsRequest(ExerciseSessionRecord::class, timeRange7d)
+                    ).records.sortedBy { it.startTime }
+                } ?: emptyList()
+            } catch (e: Exception) { emptyList() }
+        }
+
+        val hrDeferred = async {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(2000) {
+                    client.readRecords(ReadRecordsRequest(HeartRateRecord::class, hrTimeRange)).records
+                } ?: emptyList()
+            } catch (e: Exception) { emptyList() }
+        }
+
+        val spo2Deferred = async {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(2000) {
+                    client.readRecords(
+                        ReadRecordsRequest(OxygenSaturationRecord::class, timeRange7d)
+                    ).records.maxByOrNull { it.time }?.percentage?.value ?: 0.0
+                } ?: 0.0
+            } catch (e: Exception) { 0.0 }
+        }
+
+        val activeCalDeferred = async {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(2000) {
+                    client.readRecords(
+                        ReadRecordsRequest(ActiveCaloriesBurnedRecord::class, timeRange7d)
+                    ).records.sumOf { it.energy.inKilocalories.toLong() }
+                } ?: 0L
+            } catch (e: Exception) { 0L }
+        }
+
+        val totalCalDeferred = async {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(2000) {
+                    client.readRecords(
+                        ReadRecordsRequest(TotalCaloriesBurnedRecord::class, timeRange7d)
+                    ).records.sumOf { it.energy.inKilocalories.toLong() }
+                } ?: 0L
+            } catch (e: Exception) { 0L }
+        }
+
+        val distDeferred = async {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(2000) {
+                    client.readRecords(
+                        ReadRecordsRequest(DistanceRecord::class, timeRange7d)
+                    ).records.sumOf { it.distance.inKilometers }
+                } ?: 0.0
+            } catch (e: Exception) { 0.0 }
+        }
+
+        // ── Esperar resultados concurrentes ─────────────────────────────────
+        val hrvRecords = hrvDeferred.await()
+        val sleepRecords = sleepDeferred.await()
+        val stepsWeek = stepsWeekDeferred.await()
+        val stepsToday = stepsTodayDeferred.await()
+        val exerciseRecords = exerciseDeferred.await()
+        val hrRecords = hrDeferred.await()
+        val spo2 = spo2Deferred.await()
+        val activeCalories = activeCalDeferred.await()
+        val totalCalories = totalCalDeferred.await()
+        val distanceKm = distDeferred.await()
 
         val hrvValues = hrvRecords.map { it.heartRateVariabilityMillis }
         val avgHrv = if (hrvValues.isNotEmpty()) hrvValues.average() else 0.0
 
-        // ── Sueño ────────────────────────────────────────────────────────
-        val sleepRecords = try {
-            client.readRecords(
-                ReadRecordsRequest(
-                    recordType = SleepSessionRecord::class,
-                    timeRangeFilter = timeRange1d
-                )
-            ).records
-        } catch (e: Exception) { emptyList() }
-
-        val lastSleep = sleepRecords.lastOrNull()
+        val lastSleep = sleepRecords.maxByOrNull { it.endTime }
         val lastSleepDuration = lastSleep?.let {
             (it.endTime.epochSecond - it.startTime.epochSecond) / 3600.0
         } ?: 0.0
 
-        // Calcular fases de sueño (disponibles en HC desde Android 14)
         val deepSleepHours = lastSleep?.stages
             ?.filter { it.stage == SleepSessionRecord.STAGE_TYPE_DEEP }
             ?.sumOf { (it.endTime.epochSecond - it.startTime.epochSecond) / 3600.0 } ?: 0.0
@@ -92,85 +181,51 @@ class HealthConnectReader(private val client: HealthConnectClient) {
             ?.filter { it.stage == SleepSessionRecord.STAGE_TYPE_REM }
             ?.sumOf { (it.endTime.epochSecond - it.startTime.epochSecond) / 3600.0 } ?: 0.0
 
-        // Score aproximado: combinación de horas, profundo y REM
         val sleepScore = calculateSleepScore(lastSleepDuration, deepSleepHours, remSleepHours)
 
-        // ── Pasos ─────────────────────────────────────────────────────────
-        val stepsWeek = try {
-            client.readRecords(
-                ReadRecordsRequest(StepsRecord::class, timeRange7d)
-            ).records.sumOf { it.count }
-        } catch (e: Exception) { 0L }
-
-        val stepsToday = try {
-            client.readRecords(
-                ReadRecordsRequest(StepsRecord::class, timeRange1d)
-            ).records.sumOf { it.count }
-        } catch (e: Exception) { 0L }
-
-        // ── Actividades / Ejercicio ───────────────────────────────────────
-        val exerciseRecords = try {
-            client.readRecords(
-                ReadRecordsRequest(ExerciseSessionRecord::class, timeRange7d)
-            ).records.takeLast(10)
-        } catch (e: Exception) { emptyList() }
-
-        val exercises = exerciseRecords.map { ex ->
+        val exercises = exerciseRecords.takeLast(10).map { ex ->
             ExerciseInfo(
                 type = ex.exerciseType.toString(),
                 durationMin = (ex.endTime.epochSecond - ex.startTime.epochSecond) / 60.0,
-                caloriesBurned = 0L, // se calcula por separado
+                caloriesBurned = 0L,
                 startTime = ex.startTime
             )
         }
 
-        // ── FC (Heart Rate) ───────────────────────────────────────────────
-        val hrRecords = try {
-            client.readRecords(
-                ReadRecordsRequest(HeartRateRecord::class, timeRange1d)
-            ).records
-        } catch (e: Exception) { emptyList() }
+        val allHrSamples = hrRecords.flatMap { it.samples }.map { it.beatsPerMinute.toInt() }
+        val restingHr = allHrSamples.filter { it in 35..100 }.minOrNull() ?: 0
 
-        val restingHr = hrRecords
-            .flatMap { it.samples }
-            .minOfOrNull { it.beatsPerMinute }?.toInt() ?: 0
+        val calories = if (activeCalories > 0) activeCalories else totalCalories
 
-        // ── SpO2 ──────────────────────────────────────────────────────────
-        val spo2 = try {
-            client.readRecords(
-                ReadRecordsRequest(OxygenSaturationRecord::class, timeRange7d)
-            ).records.lastOrNull()?.percentage?.value ?: 0.0
-        } catch (e: Exception) { 0.0 }
+        val runningTypes = setOf(
+            ExerciseSessionRecord.EXERCISE_TYPE_RUNNING,
+            ExerciseSessionRecord.EXERCISE_TYPE_RUNNING_TREADMILL
+        )
+        val lastRun = exerciseRecords.lastOrNull { it.exerciseType in runningTypes }
+        
+        var lastRunPace = 0
+        var lastRunHr = 0
 
-        // ── Calorías y Distancia ──────────────────────────────────────────
-        val calories = try {
-            client.readRecords(
-                ReadRecordsRequest(ActiveCaloriesBurnedRecord::class, timeRange7d)
-            ).records.sumOf { it.energy.inKilocalories.toLong() }
-        } catch (e: Exception) { 0L }
+        if (lastRun != null) {
+            val runDurationMin = (lastRun.endTime.epochSecond - lastRun.startTime.epochSecond) / 60.0
 
-        val distanceKm = try {
-            client.readRecords(
-                ReadRecordsRequest(DistanceRecord::class, timeRange7d)
-            ).records.sumOf { it.distance.inKilometers }
-        } catch (e: Exception) { 0.0 }
+            val runHrSamples = hrRecords
+                .filter { it.startTime >= lastRun.startTime.minusSeconds(120) && it.endTime <= lastRun.endTime.plusSeconds(120) }
+                .flatMap { it.samples }
+                .map { it.beatsPerMinute.toInt() }
 
-        // ── Última corrida ─────────────────────────────────────────────────
-        val lastRun = exerciseRecords.lastOrNull {
-            it.exerciseType == ExerciseSessionRecord.EXERCISE_TYPE_RUNNING
+            if (runHrSamples.isNotEmpty()) {
+                lastRunHr = runHrSamples.average().toInt()
+            }
+
+            if (distanceKm > 0.1 && runDurationMin > 0) {
+                lastRunPace = ((runDurationMin * 60) / distanceKm).toInt()
+            } else if (runDurationMin > 0) {
+                lastRunPace = (runDurationMin * 60 / 5.0).toInt()
+            }
         }
-        val lastRunDuration = lastRun?.let {
-            (it.endTime.epochSecond - it.startTime.epochSecond) / 60.0
-        } ?: 0.0
 
-        // Pace aproximado (sin ruta GPS en HC, estimamos por duración y distancia promedio)
-        val lastRunPace = if (lastRunDuration > 0) (lastRunDuration * 60 / 5.0).toInt() else 360
-
-        val lastRunHr = hrRecords.flatMap { it.samples }
-            .map { it.beatsPerMinute.toInt() }
-            .let { samples -> if (samples.isNotEmpty()) samples.average().toInt() else 0 }
-
-        return HealthSnapshot(
+        HealthSnapshot(
             hrvValues = hrvValues,
             avgHrv = avgHrv,
             lastSleepHours = lastSleepDuration,

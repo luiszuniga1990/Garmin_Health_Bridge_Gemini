@@ -51,17 +51,17 @@ fun DashboardScreen(
 ) {
     val scrollState = rememberScrollState()
     val context = LocalContext.current
-
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBg)
+            .statusBarsPadding()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+                .padding(horizontal = 20.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // ── Header ──────────────────────────────────────────────────────
@@ -531,24 +531,54 @@ private fun BiomechanicRow(label: String, value: String, target: String, isGood:
 private fun RecommendationCard(insight: AIInsight) {
     GlassCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SectionTitle(title = "🎯 RECOMENDACIÓN DE HOY")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SectionTitle(title = "🎯 RECOMENDACIÓN Y AJUSTE DE HOY")
+                
+                val adjustmentColor = when {
+                    insight.ajuste_entrenamiento_hoy.contains("100%", ignoreCase = true) -> AccentGreen
+                    insight.ajuste_entrenamiento_hoy.contains("Reducir", ignoreCase = true) -> AccentYellow
+                    else -> AccentRed
+                }
+                
+                Surface(
+                    color = adjustmentColor.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, adjustmentColor.copy(alpha = 0.4f))
+                ) {
+                    Text(
+                        text = insight.ajuste_entrenamiento_hoy,
+                        color = adjustmentColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
             Text(
                 text = insight.recomendacion_hoy,
                 color = TextPrimary,
                 fontSize = 15.sp,
                 lineHeight = 22.sp
             )
-            if (insight.listo_para_correr && insight.distancia_recomendada_km > 0) {
+
+            if (insight.distancia_recomendada_km > 0) {
                 HorizontalDivider(color = CardBorder, thickness = 1.dp)
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     RunChip(
                         label = "Distancia",
                         value = "${insight.distancia_recomendada_km} km"
                     )
-                    RunChip(
-                        label = "Ritmo objetivo",
-                        value = insight.ritmo_recomendado
-                    )
+                    if (insight.ritmo_recomendado.isNotEmpty()) {
+                        RunChip(
+                            label = "Ritmo objetivo",
+                            value = insight.ritmo_recomendado
+                        )
+                    }
                 }
             }
         }
@@ -563,23 +593,27 @@ private fun MetricsRow(insight: AIInsight) {
     ) {
         MetricTile(
             modifier = Modifier.weight(1f),
-            emoji = "⚡",
-            label = "Body Battery",
-            value = "${insight.body_battery_estimado}",
-            unit = "/100",
-            valueColor = when {
-                insight.body_battery_estimado >= 70 -> AccentGreen
-                insight.body_battery_estimado >= 40 -> AccentYellow
+            emoji = "😴",
+            label = "Estado de Sueño",
+            value = insight.estado_sueño_descanso,
+            unit = "",
+            valueColor = when (insight.estado_sueño_descanso.uppercase()) {
+                "ÓPTIMO" -> AccentGreen
+                "PRECAUCIÓN" -> AccentYellow
                 else -> AccentRed
             }
         )
         MetricTile(
             modifier = Modifier.weight(1f),
-            emoji = "🏃",
-            label = "¿Corre hoy?",
-            value = if (insight.listo_para_correr) "SÍ" else "NO",
+            emoji = "🛡️",
+            label = "Sobreentrenamiento",
+            value = "Riesgo ${insight.riesgo_sobreentrenamiento}",
             unit = "",
-            valueColor = if (insight.listo_para_correr) AccentGreen else AccentRed
+            valueColor = when (insight.riesgo_sobreentrenamiento.uppercase()) {
+                "BAJO" -> AccentGreen
+                "MODERADO" -> AccentYellow
+                else -> AccentRed
+            }
         )
     }
 }

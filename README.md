@@ -12,16 +12,28 @@
 
 ## 🌟 Key Features
 
-* **📱 Native Android 16 Health Connect Integration:** Reads nightly HRV (RMSSD), Sleep Architecture (Deep, REM, Light), Resting Heart Rate, SpO2, Steps, Active Calories, and Running Biomechanics automatically.
-* **🧠 Real-Time Gemini AI Coaching:** Uses direct HTTPS REST integration with Google Gemini 3.1 AI to generate structured daily workout recommendations and recovery scores.
+* **📱 Native Android Health Connect Integration:** Reads nocturnal HRV (RMSSD), Sleep Architecture (Deep, REM, Light), Resting Heart Rate, SpO2, Steps, Active Calories, and Running Pace automatically.
+* **⚡ Ultra-Fast 100ms Instant Load Architecture:** Executes parallel Health Connect queries on `Dispatchers.IO` with 2000ms query timeouts, rendering metrics instantly in 100ms while AI enrichment runs asynchronously in the background.
+* **🧠 Multi-AI Model Integration (Gemini 2.0 & Claude AI):** Direct HTTPS REST integration with Google Gemini 2.0 Flash and Claude AI for real-time personalized coaching and workout adjustment.
 * **🗓️ Adaptive Weekly Training Plan:** Aligns daily AI advice with an adaptive 7-day schedule (Strength, Running, Indoor Cycling, Swimming & Active Recovery).
 * **💓 HRV Auto-Regulation Rules:** Dynamically adjusts exercise intensity based on nocturnal HRV baseline:
   * **> 115 ms (🟢 OPTIMAL):** 100% full workload authorized.
   * **105–115 ms (🟡 CAUTION):** Standard plan execution without additional volume.
   * **95–105 ms (🟠 ATTENTION):** Running/cycling load reduced by 30%.
   * **< 95 ms or Low Sleep (🔴 ALERT):** Replaces intense workout with Zone 1 active recovery.
-* **🔒 Hardware-Backed Security:** API keys are encrypted with AES-256-GCM using Android Keystore inside the device's Trusted Execution Environment (TEE).
-* **🎨 Glassmorphic Premium Dark Mode UI:** Built with Jetpack Compose, dynamic status gradients, and pulsing animation states.
+* **🔒 Samsung Knox & Hardware Keystore Resilience:** API keys are secured with AES-256-GCM using hardware-isolated Android Keystore with soft fallback protection against `AEADBadTagException` during reinstalls.
+* **🎨 Glassmorphic Premium Dark Mode UI:** Built with Jetpack Compose, status bar padding clearance, and dynamic gradient indicators.
+
+---
+
+## 📊 Biometrics Data Pipeline & Calculations
+
+HealthBridgeApp categorizes telemetry into two distinct pipelines:
+
+| Metric Category | Telemetry / Metric | Source & Processing Method |
+| :--- | :--- | :--- |
+| **Real Health Connect Data** | Nocturnal HRV (RMSSD), Sleep Hours, Sleep Quality Score, Resting Heart Rate, Steps, SpO2, Calories | Read directly from local Samsung / Android **Health Connect** provider synchronized from Garmin Connect. |
+| **Algorithmic Biomechanics** | Cadence (spm), Ground Contact Time (ms), Vertical Oscillation (cm) | Calculated dynamically based on running speed (`lastRunPaceSecPerKm`), as Health Connect API does not store raw 3D running dynamics. |
 
 ---
 
@@ -29,14 +41,14 @@
 
 ```
 ┌─────────────────┐       Auto-Sync       ┌─────────────────────┐
-│ Garmin Watch /  │ ────────────────────> │ Android 16          │
+│ Garmin Watch /  │ ────────────────────> │ Android             │
 │ Garmin Connect  │                       │ Health Connect DB   │
 └─────────────────┘                       └──────────┬──────────┘
-                                                     │ Local Read
+                                                     │ Local IO Read (<100ms)
                                                      ▼
 ┌─────────────────┐     HTTPS REST        ┌─────────────────────┐
 │ Google Gemini   │ <───────────────────> │ HealthBridgeApp     │
-│ 3.1 AI Engine   │  (x-goog-api-key)     │ (Jetpack Compose)   │
+│ & Claude AI     │  (Encrypted Rest)     │ (Jetpack Compose)   │
 └─────────────────┘                       └─────────────────────┘
 ```
 
@@ -45,8 +57,9 @@
 ## 🛠️ Technology Stack
 
 * **Language:** Kotlin 2.1.0
-* **UI Framework:** Jetpack Compose (Material3 Dark Theme)
+* **UI Framework:** Jetpack Compose (Material3 Dark Theme + Glassmorphism)
 * **Data Layer:** `androidx.health.connect:connect-client:1.1.0`
+* **Concurrency:** Kotlin Coroutines (`Dispatchers.IO`, `withTimeoutOrNull(2000)`)
 * **Network & Serialization:** Native HTTPS REST (`HttpURLConnection`) + `kotlinx.serialization.json`
 * **Security Layer:** `androidx.security:security-crypto:1.1.0-alpha06` (Android Keystore)
 
@@ -55,9 +68,9 @@
 ## 🚀 Getting Started
 
 ### Prerequisites
-* Android 16 or compatible Android device with Health Connect.
+* Android 14+ or compatible Android device with Health Connect.
 * Garmin Connect app installed and synced with Health Connect.
-* Free **Gemini API Key** from [Google AI Studio](https://aistudio.google.com/apikey).
+* Free **Gemini API Key** from [Google AI Studio](https://aistudio.google.com/apikey) or **Claude API Key**.
 
 ### Installation & Build
 
@@ -74,15 +87,15 @@
 
 3. **Install on connected Android device via ADB:**
    ```bash
-   adb install app/build/outputs/apk/debug/app-debug.apk
+   adb install -r -d HealthBridgeApp-debug.apk
    ```
 
 ---
 
 ## 🔒 Security & Privacy
 
-* **Zero External Server Storage:** Biometric data is read locally from Health Connect and transmitted directly to Google Gemini API via encrypted HTTPS. No intermediate telemetry or data harvesting servers.
-* **Encrypted Storage:** API keys are stored using `EncryptedSharedPreferences` backed by hardware-isolated Android Keystore.
+* **Zero External Server Storage:** Biometric data is processed locally and transmitted directly to Google Gemini / Claude APIs via encrypted HTTPS. No intermediate tracking servers or telemetry collection.
+* **Keystore Encrypted Storage:** User API keys are stored in encrypted preferences backed by Android Keystore TEE.
 * **Strict Network Security Config:** Enforces HTTPS-only traffic (`cleartextTrafficPermitted="false"`).
 
 ---

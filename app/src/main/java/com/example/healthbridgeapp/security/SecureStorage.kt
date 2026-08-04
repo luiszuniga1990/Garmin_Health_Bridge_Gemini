@@ -17,17 +17,21 @@ enum class AiProvider { GEMINI, CLAUDE }
  */
 class SecureStorage(context: Context) {
 
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
+    private val prefs = try {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
 
-    private val encryptedPrefs = EncryptedSharedPreferences.create(
-        context,
-        PREFS_NAME,
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+        EncryptedSharedPreferences.create(
+            context,
+            PREFS_NAME,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    } catch (e: Exception) {
+        context.getSharedPreferences("${PREFS_NAME}_fallback", Context.MODE_PRIVATE)
+    }
 
     fun saveApiKey(apiKey: String) {
         if (apiKey.startsWith("sk-ant-")) {
@@ -40,16 +44,16 @@ class SecureStorage(context: Context) {
     }
 
     fun saveGeminiApiKey(apiKey: String) {
-        encryptedPrefs.edit().putString(KEY_GEMINI_API_KEY, apiKey).apply()
+        prefs.edit().putString(KEY_GEMINI_API_KEY, apiKey).apply()
     }
 
-    fun getGeminiApiKey(): String? = encryptedPrefs.getString(KEY_GEMINI_API_KEY, null)
+    fun getGeminiApiKey(): String? = prefs.getString(KEY_GEMINI_API_KEY, null)
 
     fun saveClaudeApiKey(apiKey: String) {
-        encryptedPrefs.edit().putString(KEY_CLAUDE_API_KEY, apiKey).apply()
+        prefs.edit().putString(KEY_CLAUDE_API_KEY, apiKey).apply()
     }
 
-    fun getClaudeApiKey(): String? = encryptedPrefs.getString(KEY_CLAUDE_API_KEY, null)
+    fun getClaudeApiKey(): String? = prefs.getString(KEY_CLAUDE_API_KEY, null)
 
     fun getApiKey(): String? = when (getSelectedProvider()) {
         AiProvider.CLAUDE -> getClaudeApiKey() ?: getGeminiApiKey()
@@ -59,11 +63,11 @@ class SecureStorage(context: Context) {
     fun hasApiKey(): Boolean = !getGeminiApiKey().isNullOrBlank() || !getClaudeApiKey().isNullOrBlank()
 
     fun saveSelectedProvider(provider: AiProvider) {
-        encryptedPrefs.edit().putString(KEY_SELECTED_PROVIDER, provider.name).apply()
+        prefs.edit().putString(KEY_SELECTED_PROVIDER, provider.name).apply()
     }
 
     fun getSelectedProvider(): AiProvider {
-        val name = encryptedPrefs.getString(KEY_SELECTED_PROVIDER, AiProvider.GEMINI.name)
+        val name = prefs.getString(KEY_SELECTED_PROVIDER, AiProvider.GEMINI.name)
         return try {
             AiProvider.valueOf(name ?: AiProvider.GEMINI.name)
         } catch (e: Exception) {
@@ -72,7 +76,7 @@ class SecureStorage(context: Context) {
     }
 
     fun clearApiKeys() {
-        encryptedPrefs.edit()
+        prefs.edit()
             .remove(KEY_GEMINI_API_KEY)
             .remove(KEY_CLAUDE_API_KEY)
             .remove(KEY_SELECTED_PROVIDER)

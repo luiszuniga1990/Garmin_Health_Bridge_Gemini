@@ -136,7 +136,7 @@ fun OnboardingScreen(onApiKeySubmitted: (String) -> Unit) {
             // Botón de confirmación
             Button(
                 onClick = {
-                    if ((apiKey.trim().startsWith("AIza") || apiKey.trim().startsWith("AQ.")) && apiKey.length > 20) {
+                    if (apiKey.trim().length >= 10) {
                         onApiKeySubmitted(apiKey.trim())
                     } else {
                         isError = true
